@@ -251,3 +251,9 @@ def api_fiches(req: FichesRequest):
         "free_remaining":  max(0, FREE_LIMIT - fiches_count) if not paid else None,
         "paywall_reached": paywall_reached,
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)
