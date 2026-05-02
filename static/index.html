@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FicheIA</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f0f4ff;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: white;
+      padding: 1.5rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      box-shadow: 0 2px 12px rgba(79,70,229,.3);
+    }
+    header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.5px; }
+    header span { font-size: 1.8rem; }
+
+    main { max-width: 820px; margin: 2.5rem auto; padding: 0 1.5rem 4rem; }
+
+    /* ── Étapes ── */
+    .steps {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+      align-items: center;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .step .num {
+      width: 1.6rem; height: 1.6rem;
+      border-radius: 50%;
+      background: #cbd5e1;
+      color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700;
+    }
+    .step.active { color: #4f46e5; }
+    .step.active .num { background: #4f46e5; }
+    .step.done .num { background: #22c55e; }
+    .step-sep { flex: 1; height: 2px; background: #e2e8f0; border-radius: 1px; }
+
+    /* ── Carte ── */
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+    }
+    .card h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      color: #1e293b;
+    }
+
+    /* ── Formulaire ── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .form-grid .full { grid-column: 1 / -1; }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #64748b;
+      margin-bottom: 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 0.65rem 0.9rem;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      color: #1e293b;
+      background: #f8fafc;
+      transition: border-color .15s, box-shadow .15s;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+      background: white;
+    }
+
+    .date-row { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 0.75rem; }
+
+    /* ── Boutons ── */
+    button.primary {
+      margin-top: 1.5rem;
+      width: 100%;
+      padding: 0.85rem;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    button.primary:hover  { opacity: 0.92; transform: translateY(-1px); }
+    button.primary:active { transform: translateY(0); }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    button.primary.stripe-btn {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      margin-top: 0;
+    }
+
+    button.secondary {
+      padding: 0.65rem 1.25rem;
+      background: #f1f5f9;
+      color: #4f46e5;
+      border: 1.5px solid #c7d2fe;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button.secondary:hover { background: #e0e7ff; }
+
+    /* ── Loader ── */
+    .loader-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 2.5rem 0;
+    }
+    .spinner {
+      width: 2.5rem; height: 2.5rem;
+      border: 3px solid #e0e7ff;
+      border-top-color: #4f46e5;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-wrap p { color: #64748b; font-size: 0.9rem; }
+
+    /* ── Messages ── */
+    .error-box {
+      background: #fff1f2;
+      border: 1.5px solid #fecdd3;
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      color: #be123c;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+    .success-box {
+      background: #f0fdf4;
+      border: 1.5px solid #bbf7d0;
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      color: #15803d;
+      font-size: 0.9rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ── Compteur fiches gratuites ── */
+    .free-counter {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: #f5f3ff;
+      border: 1.5px solid #ddd6fe;
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .free-counter .label { font-size: 0.85rem; color: #4f46e5; font-weight: 600; flex: 1; }
+    .free-counter .bar-wrap {
+      flex: 1;
+      height: 6px;
+      background: #e0e7ff;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .free-counter .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4f46e5, #7c3aed);
+      border-radius: 99px;
+      transition: width .4s ease;
+    }
+    .free-counter .count { font-size: 0.8rem; color: #64748b; white-space: nowrap; }
+
+    /* ── Paywall ── */
+    .paywall {
+      border: 2px dashed #c7d2fe;
+      border-radius: 14px;
+      padding: 1.75rem;
+      margin-top: 1.5rem;
+      text-align: center;
+      background: #f5f3ff;
+    }
+    .paywall .price {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #4f46e5;
+      margin: 0.5rem 0;
+    }
+    .paywall .price span { font-size: 1rem; font-weight: 500; color: #94a3b8; }
+    .paywall p { font-size: 0.9rem; color: #64748b; margin-bottom: 1.25rem; }
+    .paywall ul {
+      list-style: none;
+      margin-bottom: 1.5rem;
+      display: inline-block;
+      text-align: left;
+    }
+    .paywall ul li { font-size: 0.88rem; color: #475569; padding: 0.2rem 0; }
+    .paywall ul li::before { content: "✓  "; color: #22c55e; font-weight: 700; }
+
+    /* ── Liste de cours ── */
+    .cours-list { display: flex; flex-direction: column; gap: 0.6rem; }
+
+    .cours-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      user-select: none;
+    }
+    .cours-item:hover   { border-color: #a5b4fc; background: #f5f3ff; }
+    .cours-item.selected { border-color: #4f46e5; background: #eef2ff; }
+    .cours-item input[type="checkbox"] { accent-color: #4f46e5; width: 1.1rem; height: 1.1rem; }
+
+    .cours-info { flex: 1; min-width: 0; }
+    .cours-matiere { font-weight: 600; font-size: 0.95rem; color: #1e293b; }
+    .cours-meta    { font-size: 0.78rem; color: #94a3b8; margin-top: 0.15rem; }
+    .cours-devoir  { font-size: 0.8rem; color: #64748b; margin-top: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      border-radius: 99px;
+      white-space: nowrap;
+    }
+    .badge-contenu { background: #dcfce7; color: #15803d; }
+    .badge-devoir  { background: #fef9c3; color: #854d0e; }
+    .badge-vide    { background: #f1f5f9; color: #94a3b8; }
+
+    .select-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      align-items: center;
+    }
+    .select-count { margin-left: auto; font-size: 0.85rem; color: #64748b; }
+
+    /* ── Fiches ── */
+    .fiche-card {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+      margin-bottom: 1.5rem;
+    }
+    .fiche-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+      gap: 1rem;
+    }
+    .fiche-title { font-size: 1.1rem; font-weight: 700; color: #1e293b; }
+    .fiche-meta  { font-size: 0.8rem; color: #94a3b8; margin-top: 0.2rem; }
+
+    .fiche-body { font-size: 0.92rem; line-height: 1.7; color: #334155; }
+    .fiche-body h2       { font-size: 1rem; color: #4f46e5; margin: 1.25rem 0 0.5rem; }
+    .fiche-body ul       { padding-left: 1.25rem; }
+    .fiche-body li       { margin-bottom: 0.2rem; }
+    .fiche-body strong   { color: #1e293b; }
+    .fiche-body p        { margin-bottom: 0.6rem; }
+
+    .copy-btn {
+      font-size: 0.8rem;
+      padding: 0.4rem 0.8rem;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #64748b;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .copy-btn:hover { background: #e2e8f0; }
+
+    .hidden { display: none !important; }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white;
+      padding: 4rem 2rem 3.5rem;
+      text-align: center;
+    }
+    .hero h2 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 1rem;
+      line-height: 1.2;
+    }
+    .hero p {
+      font-size: 1.05rem;
+      opacity: 0.88;
+      max-width: 500px;
+      margin: 0 auto 2rem;
+      line-height: 1.6;
+    }
+    .hero-badges {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 2.25rem;
+    }
+    .hero-badge {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 99px;
+      padding: 0.35rem 0.9rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+    .btn-hero {
+      display: inline-block;
+      background: white;
+      color: #4f46e5;
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 0.85rem 2.25rem;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 4px 20px rgba(0,0,0,.18);
+    }
+    .btn-hero:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,.22); }
+    .btn-hero:active { transform: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span>🎓</span>
+  <h1>FicheIA</h1>
+</header>
+
+<!-- ── Hero ── -->
+<div class="hero" id="hero-section">
+  <h2>Des fiches de révision<br>en 30 secondes</h2>
+  <p>FicheIA se connecte à ton École Directe, récupère tes cours et génère automatiquement résumés, points clés, flashcards et QCM.</p>
+  <div class="hero-badges">
+    <span class="hero-badge">✓ 5 fiches gratuites</span>
+    <span class="hero-badge">✓ Sans installation</span>
+    <span class="hero-badge">✓ Alimenté par Claude AI</span>
+  </div>
+  <button class="btn-hero" onclick="scrollToForm()">Essayer gratuitement →</button>
+</div>
+
+<main>
+
+  <!-- Indicateur d'étapes -->
+  <div class="steps">
+    <div class="step active" id="step1-ind"><div class="num">1</div> Connexion</div>
+    <div class="step-sep"></div>
+    <div class="step" id="step2-ind"><div class="num">2</div> Cours</div>
+    <div class="step-sep"></div>
+    <div class="step" id="step3-ind"><div class="num">3</div> Fiches</div>
+  </div>
+
+  <!-- ── ÉTAPE 1 : Formulaire ── -->
+  <div id="section-form" class="card">
+    <h2>Connexion à École Directe</h2>
+    <form id="login-form" autocomplete="off">
+      <div class="form-grid">
+        <div>
+          <label for="identifiant">Identifiant</label>
+          <input id="identifiant" type="text" placeholder="ex : identifiant" required />
+        </div>
+        <div>
+          <label for="mdp">Mot de passe</label>
+          <input id="mdp" type="password" placeholder="mot de passe" required />
+        </div>
+        <div class="full">
+          <label>Date de naissance</label>
+          <div class="date-row">
+            <input id="jour"  type="number" min="1" max="31" placeholder="Jour"  required />
+            <select id="mois" required>
+              <option value="">Mois</option>
+              <option value="janvier">Janvier</option>
+              <option value="février">Février</option>
+              <option value="mars">Mars</option>
+              <option value="avril">Avril</option>
+              <option value="mai">Mai</option>
+              <option value="juin">Juin</option>
+              <option value="juillet">Juillet</option>
+              <option value="août">Août</option>
+              <option value="septembre">Septembre</option>
+              <option value="octobre">Octobre</option>
+              <option value="novembre">Novembre</option>
+              <option value="décembre">Décembre</option>
+            </select>
+            <input id="annee" type="number" min="2000" max="2020" placeholder="Année" required />
+          </div>
+        </div>
+        <div>
+          <label for="prenom">Prénom</label>
+          <input id="prenom" type="text" placeholder="ex : Léa" required />
+        </div>
+        <div>
+          <label for="nom">Nom de famille</label>
+          <input id="nom" type="text" placeholder="ex : Dupont" required />
+        </div>
+        <div>
+          <label for="classe">Classe</label>
+          <input id="classe" type="text" placeholder="ex : 3eme3" required />
+        </div>
+        <div>
+          <label for="prof">Professeur principal</label>
+          <input id="prof" type="text" placeholder="ex : Dupont" required />
+        </div>
+      </div>
+      <button type="submit" class="primary">Récupérer mes cours →</button>
+    </form>
+    <div id="error-form" class="error-box hidden"></div>
+  </div>
+
+  <!-- ── Loader ── -->
+  <div id="section-loading" class="card hidden">
+    <div class="loader-wrap">
+      <div class="spinner"></div>
+      <p id="loading-msg">Connexion à École Directe en cours…</p>
+    </div>
+  </div>
+
+  <!-- ── ÉTAPE 2 : Liste des cours ── -->
+  <div id="section-cours" class="card hidden">
+    <h2 id="cours-titre">Sélectionne les cours à ficher</h2>
+
+    <!-- Badge abonnement actif -->
+    <div id="paid-badge" class="success-box hidden">
+      <span>✅</span> Abonnement actif — génération illimitée
+    </div>
+
+    <!-- Compteur fiches gratuites -->
+    <div id="free-counter" class="free-counter hidden">
+      <span class="label" id="counter-label">0 / 5 fiches gratuites utilisées</span>
+      <div class="bar-wrap"><div class="bar-fill" id="counter-bar" style="width:0%"></div></div>
+      <span class="count" id="counter-remaining">5 restantes</span>
+    </div>
+
+    <div class="select-actions">
+      <button class="secondary" onclick="toggleAll(true)">Tout sélectionner</button>
+      <button class="secondary" onclick="toggleAll(false)">Tout désélectionner</button>
+      <span class="select-count" id="select-count">0 sélectionné(s)</span>
+    </div>
+
+    <div class="cours-list" id="cours-list"></div>
+    <div id="error-cours" class="error-box hidden"></div>
+
+    <!-- Bouton générer (visible si payé) -->
+    <button class="primary hidden" id="btn-generer" onclick="genererFiches()">
+      Générer les fiches ✨
+    </button>
+
+    <!-- Paywall (visible si non payé) -->
+    <div class="paywall hidden" id="paywall">
+      <p style="font-weight:600; font-size:1rem; color:#1e293b;">Débloquer la génération de fiches</p>
+      <div class="price">9,90€ <span>/ mois</span></div>
+      <p>Abonnement mensuel sans engagement</p>
+      <ul>
+        <li>Fiches de révision illimitées</li>
+        <li>Résumé · Points clés · Flashcards · QCM</li>
+        <li>Synchronisation automatique avec École Directe</li>
+      </ul>
+      <button class="primary stripe-btn" id="btn-pay" onclick="payerAbonnement()">
+        💳 Payer 9,90€/mois avec Stripe
+      </button>
+      <div id="error-stripe" class="error-box hidden" style="text-align:left; margin-top:1rem;"></div>
+    </div>
+  </div>
+
+  <!-- ── Loader génération ── -->
+  <div id="section-gen-loading" class="card hidden">
+    <div class="loader-wrap">
+      <div class="spinner"></div>
+      <p>Génération des fiches via Claude…</p>
+    </div>
+  </div>
+
+  <!-- ── ÉTAPE 3 : Fiches ── -->
+  <div id="section-fiches" class="hidden">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem;">
+      <h2 style="font-size:1.1rem; font-weight:700;">Tes fiches de révision</h2>
+      <button class="secondary" onclick="restart()">← Nouveau cours</button>
+    </div>
+    <div id="fiches-container"></div>
+  </div>
+
+</main>
+
+<script>
+  let sessionId   = null;
+  let coursList   = [];
+  let isPaid      = false;
+  let fichesCount = 0;
+  const FREE_LIMIT = 5;
+
+  // ── Retour depuis Stripe ─────────────────────────────────────────────────
+  (async function handleStripeReturn() {
+    const params         = new URLSearchParams(window.location.search);
+    const stripeSession  = params.get("paid");
+    const appSession     = params.get("app");
+    const cancelled      = params.get("cancelled");
+
+    // Nettoie l'URL sans recharger la page
+    if (stripeSession || cancelled) {
+      window.history.replaceState({}, "", "/");
+    }
+
+    if (appSession && stripeSession) {
+      showSection("loading");
+      document.getElementById("loading-msg").textContent = "Vérification du paiement…";
+
+      try {
+        // Vérification du paiement
+        await post("/api/verify-payment", {
+          stripe_session_id: stripeSession,
+          app_session_id:    appSession,
+        });
+
+        // Restauration de la session
+        const data = await get(`/api/session/${appSession}`);
+        sessionId   = appSession;
+        coursList   = data.cours_list;
+        isPaid      = true;
+        fichesCount = data.fiches_count ?? 0;
+
+        renderCoursList(coursList);
+        document.getElementById("cours-titre").textContent =
+          `${data.infos.prenom} ${data.infos.nom} — ${coursList.length} cours trouvé(s)`;
+        showPaidUI();
+        setStepActive(2);
+        showSection("cours");
+      } catch (err) {
+        showSection("form");
+        showError("error-form", "Erreur lors de la vérification du paiement : " + err.message);
+      }
+      return;
+    }
+
+    if (appSession && cancelled) {
+      // Restaure la session sans marquer comme payé
+      try {
+        const data  = await get(`/api/session/${appSession}`);
+        sessionId   = appSession;
+        coursList   = data.cours_list;
+        isPaid      = data.paid;
+        fichesCount = data.fiches_count ?? 0;
+
+        renderCoursList(coursList);
+        document.getElementById("cours-titre").textContent =
+          `${data.infos.prenom} ${data.infos.nom} — ${coursList.length} cours trouvé(s)`;
+        if (isPaid) showPaidUI();
+        else if (fichesCount >= FREE_LIMIT) showPaywall();
+        else showFreeCounter();
+        setStepActive(2);
+        showSection("cours");
+      } catch {
+        showSection("form");
+      }
+    }
+  })();
+
+
+  // ── Connexion & récupération des cours ──────────────────────────────────
+
+  document.getElementById("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    showSection("loading");
+    document.getElementById("loading-msg").textContent = "Connexion à École Directe en cours…";
+    setStepActive(1);
+
+    try {
+      const res = await post("/api/cours", {
+        identifiant:  val("identifiant"),
+        mot_de_passe: val("mdp"),
+        jour:   val("jour"),
+        mois:   val("mois"),
+        annee:  val("annee"),
+        classe: val("classe"),
+        prof:   val("prof"),
+        nom:    val("nom"),
+        prenom: val("prenom"),
+      });
+
+      sessionId   = res.session_id;
+      coursList   = res.cours_list;
+      isPaid      = false;
+      fichesCount = res.fiches_count ?? 0;
+
+      renderCoursList(coursList);
+      document.getElementById("cours-titre").textContent =
+        `${res.infos.prenom} ${res.infos.nom} — ${coursList.length} cours trouvé(s)`;
+
+      if (fichesCount >= FREE_LIMIT) showPaywall();
+      else showFreeCounter();
+      setStepActive(2);
+      showSection("cours");
+    } catch (err) {
+      showSection("form");
+      showError("error-form", err.message);
+    }
+  });
+
+
+  // ── Paiement Stripe ──────────────────────────────────────────────────────
+
+  async function payerAbonnement() {
+    const btn = document.getElementById("btn-pay");
+    btn.disabled = true;
+    btn.textContent = "Redirection vers Stripe…";
+
+    try {
+      const res = await post("/api/create-checkout-session", { app_session_id: sessionId });
+      window.location.href = res.checkout_url;
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "💳 Payer 9,90€/mois avec Stripe";
+      showError("error-stripe", err.message);
+    }
+  }
+
+
+  // ── Génération des fiches ────────────────────────────────────────────────
+
+  async function genererFiches() {
+    const indices = [...document.querySelectorAll("#cours-list input:checked")]
+      .map(cb => parseInt(cb.value));
+    if (!indices.length) return;
+
+    // Limite atteinte et non payé → paywall sans appel serveur
+    if (!isPaid && fichesCount >= FREE_LIMIT) {
+      showPaywall();
+      return;
+    }
+
+    showSection("gen-loading");
+
+    try {
+      const res = await post("/api/fiches", { session_id: sessionId, indices });
+
+      // Met à jour le compteur
+      updateCounter(res.fiches_count);
+
+      renderFiches(res.fiches);
+      setStepActive(3);
+      showSection("fiches");
+
+      // Des fiches ont été bloquées par la limite → affiche le paywall sur l'écran résultat
+      if (res.paywall_reached) {
+        const notice = document.createElement("div");
+        notice.className = "error-box";
+        notice.style.cssText = "background:#f5f3ff;border-color:#c4b5fd;color:#4f46e5;margin-bottom:1rem;";
+        notice.innerHTML = `
+          🎁 Tu as utilisé tes <strong>${FREE_LIMIT} fiches gratuites</strong>.
+          Abonne-toi pour continuer à générer des fiches sans limite.
+          <br><br>
+          <button class="primary stripe-btn" style="margin-top:0.5rem;width:auto;padding:0.6rem 1.25rem;font-size:0.9rem;"
+            onclick="showSection('cours'); showPaywall();">
+            Voir l'offre →
+          </button>`;
+        document.getElementById("fiches-container").prepend(notice);
+      }
+    } catch (err) {
+      showSection("cours");
+      if (err.message.includes("402") || err.message.toLowerCase().includes("limite")) {
+        showPaywall();
+      } else {
+        showError("error-cours", err.message);
+      }
+    }
+  }
+
+
+  // ── Rendu liste de cours ─────────────────────────────────────────────────
+
+  function renderCoursList(list) {
+    const container = document.getElementById("cours-list");
+    container.innerHTML = "";
+
+    list.forEach((c, i) => {
+      const hasContenu = !!c.contenu;
+      const hasDevoir  = !!c.devoir;
+      const badge = hasContenu
+        ? `<span class="badge badge-contenu">cours</span>`
+        : hasDevoir
+        ? `<span class="badge badge-devoir">devoir</span>`
+        : `<span class="badge badge-vide">vide</span>`;
+
+      const item = document.createElement("label");
+      item.className = "cours-item";
+      item.innerHTML = `
+        <input type="checkbox" value="${i}" ${!(hasContenu || hasDevoir) ? "disabled" : ""}
+          onchange="updateCount()" />
+        <div class="cours-info">
+          <div class="cours-matiere">${esc(c.matiere)}</div>
+          <div class="cours-meta">${esc(c.date)} · ${esc(c.prof)}</div>
+          ${c.devoir ? `<div class="cours-devoir">${esc(c.devoir.substring(0, 90))}…</div>` : ""}
+        </div>
+        ${badge}`;
+
+      item.querySelector("input").addEventListener("change", function () {
+        item.classList.toggle("selected", this.checked);
+      });
+      container.appendChild(item);
+    });
+
+    updateCount();
+  }
+
+  function toggleAll(state) {
+    document.querySelectorAll("#cours-list input:not(:disabled)").forEach(cb => {
+      cb.checked = state;
+      cb.closest(".cours-item").classList.toggle("selected", state);
+    });
+    updateCount();
+  }
+
+  function updateCount() {
+    const n = document.querySelectorAll("#cours-list input:checked").length;
+    document.getElementById("select-count").textContent = `${n} sélectionné(s)`;
+    const btn = document.getElementById("btn-generer");
+    if (!btn.classList.contains("hidden")) btn.disabled = n === 0;
+  }
+
+  function updateCounter(count) {
+    fichesCount = count ?? fichesCount;
+    const remaining = Math.max(0, FREE_LIMIT - fichesCount);
+    const pct       = Math.min(100, (fichesCount / FREE_LIMIT) * 100);
+
+    document.getElementById("counter-label").textContent =
+      `${fichesCount} / ${FREE_LIMIT} fiches gratuites utilisées`;
+    document.getElementById("counter-bar").style.width = `${pct}%`;
+    document.getElementById("counter-remaining").textContent =
+      remaining === 0 ? "Limite atteinte" : `${remaining} restante${remaining > 1 ? "s" : ""}`;
+
+    // Si limite atteinte et non payé → bascule vers le paywall
+    if (!isPaid && fichesCount >= FREE_LIMIT) {
+      showPaywall();
+    }
+  }
+
+  function showPaidUI() {
+    isPaid = true;
+    document.getElementById("paid-badge").classList.remove("hidden");
+    document.getElementById("free-counter").classList.add("hidden");
+    document.getElementById("paywall").classList.add("hidden");
+    document.getElementById("btn-generer").classList.remove("hidden");
+    updateCount();
+  }
+
+  function showPaywall() {
+    isPaid = false;
+    document.getElementById("paid-badge").classList.add("hidden");
+    document.getElementById("paywall").classList.remove("hidden");
+    document.getElementById("btn-generer").classList.add("hidden");
+  }
+
+  function showFreeCounter() {
+    document.getElementById("free-counter").classList.remove("hidden");
+    document.getElementById("paywall").classList.add("hidden");
+    document.getElementById("btn-generer").classList.remove("hidden");
+    updateCounter();
+  }
+
+
+  // ── Rendu des fiches ─────────────────────────────────────────────────────
+
+  function renderFiches(fiches) {
+    const container = document.getElementById("fiches-container");
+    container.innerHTML = "";
+
+    fiches.forEach(f => {
+      const c    = f.cours;
+      const card = document.createElement("div");
+      card.className = "fiche-card";
+
+      if (f.erreur) {
+        card.innerHTML = `
+          <div class="fiche-header">
+            <div>
+              <div class="fiche-title">${esc(c.matiere)}</div>
+              <div class="fiche-meta">${esc(c.date)}</div>
+            </div>
+          </div>
+          <div class="error-box">${esc(f.erreur)}</div>`;
+      } else {
+        card.innerHTML = `
+          <div class="fiche-header">
+            <div>
+              <div class="fiche-title">${esc(c.matiere)}</div>
+              <div class="fiche-meta">${esc(c.date)} · ${esc(c.prof)}</div>
+            </div>
+            <button class="copy-btn" onclick="copyFiche(this, ${JSON.stringify(f.texte)})">Copier</button>
+          </div>
+          <div class="fiche-body">${marked.parse(f.texte || "")}</div>`;
+      }
+
+      container.appendChild(card);
+    });
+  }
+
+  function copyFiche(btn, texte) {
+    navigator.clipboard.writeText(texte).then(() => {
+      btn.textContent = "Copié ✓";
+      setTimeout(() => btn.textContent = "Copier", 2000);
+    });
+  }
+
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  function scrollToForm() {
+    document.getElementById("section-form").scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("identifiant").focus();
+  }
+
+  function restart() {
+    sessionId = null; coursList = []; isPaid = false; fichesCount = 0;
+    setStepActive(1);
+    showSection("form");
+    document.getElementById("error-form").classList.add("hidden");
+    document.getElementById("free-counter").classList.add("hidden");
+    document.getElementById("hero-section").classList.remove("hidden");
+  }
+
+  function showSection(name) {
+    ["form", "loading", "cours", "gen-loading", "fiches"].forEach(s => {
+      const el = document.getElementById(`section-${s}`);
+      if (el) el.classList.toggle("hidden", s !== name);
+    });
+  }
+
+  function setStepActive(n) {
+    [1, 2, 3].forEach(i => {
+      const el = document.getElementById(`step${i}-ind`);
+      el.classList.toggle("active", i === n);
+      el.classList.toggle("done",   i < n);
+    });
+  }
+
+  function showError(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+
+  function val(id) { return document.getElementById(id).value.trim(); }
+  function esc(s)  {
+    return String(s ?? "")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  async function post(url, data) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Erreur serveur");
+    }
+    return res.json();
+  }
+
+  async function get(url) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Erreur serveur");
+    }
+    return res.json();
+  }
+
+  updateCount();
+</script>
+</body>
+</html>

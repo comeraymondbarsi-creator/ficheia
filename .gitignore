@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Claude Code
+.claude/
+
+# Fichiers parasites
+index.html.html
+
+# Base de données locale
+ficheia.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Scripts de test
+test_*.py
+debug_*.py
+
+# Screenshots de debug
+*.png
+
+# Fiches générées localement
+fiche_*.txt
