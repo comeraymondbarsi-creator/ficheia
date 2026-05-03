@@ -1,24 +1,15 @@
 """
 FicheIA — Agent École Directe
-Utilise Playwright (vrai navigateur Chromium) pour contourner la protection
-anti-bot d'École Directe, puis génère des fiches de révision via Claude.
-
-Installation :
-    pip install playwright anthropic fastapi uvicorn
-    playwright install chromium
-
-Usage CLI :
-    python ecoledirecte_agent.py --identifiant ComeRB --mdp MonMdp \
-        --jour 19 --mois janvier --annee 2011 --classe 3eme3 --prof olivero \
-        --api-key sk-ant-...
+Utilise requests pour appeler directement l'API École Directe en HTTP.
 """
 
+import json
 import re as _re
 import base64
 import argparse
 from datetime import datetime, timedelta
 
-from playwright.sync_api import sync_playwright
+import requests
 import anthropic
 
 BASE_URL    = "https://api.ecoledirecte.com/v3"
@@ -48,7 +39,6 @@ def build_qcm_reponses(
     jour: str, mois: str, annee: str, classe: str, prof: str,
     nom: str = "", prenom: str = "", identifiant: str = "",
 ) -> list[str]:
-    """Construit la liste des réponses possibles au QCM depuis les infos utilisateur."""
     mois_nom = MOIS_FR.get(str(mois).lstrip("0") or "0", str(mois))
     reponses = [
         str(jour).lstrip("0"),
@@ -58,13 +48,13 @@ def build_qcm_reponses(
         classe,
         classe.replace("è", "e").replace("é", "e"),
         prof.lower(),
-        nom.upper(),                          # "BREBANT"
-        nom.lower(),                          # "brebant"
-        prenom.lower(),                       # "côme" ou "come"
-        prenom.encode("ascii", "ignore").decode().lower(),  # sans accents
-        identifiant.lower(),                  # "comerb"
+        nom.upper(),
+        nom.lower(),
+        prenom.lower(),
+        prenom.encode("ascii", "ignore").decode().lower(),
+        identifiant.lower(),
     ]
-    return list(dict.fromkeys(r for r in reponses if r))  # déduplique, ordre conservé
+    return list(dict.fromkeys(r for r in reponses if r))
 
 
 def _strip_html(text: str) -> str:
@@ -85,128 +75,90 @@ def _decode_b64(content) -> str:
     return _strip_html(texte) if "<" in texte else texte
 
 
-def _api_post(page, url: str, payload: str, token: str = "") -> dict:
-    headers = {
+def _make_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://www.ecoledirecte.com",
         "Referer": "https://www.ecoledirecte.com/",
-    }
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+    })
+    return s
+
+
+def _api_post(session: requests.Session, url: str, payload: str, token: str = "") -> dict:
+    headers = {}
     if token:
         headers["X-Token"] = token
-
-    return page.evaluate("""
-        async ([url, payload, headers]) => {
-            const resp = await fetch(url, {
-                method: "POST",
-                headers: headers,
-                body: payload,
-            });
-            return await resp.json();
-        }
-    """, [url, payload, headers])
+    resp = session.post(url, data=payload, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ─────────────────────────────────────────────
 # CONNEXION
 # ─────────────────────────────────────────────
 
-def login(page, identifiant: str, mot_de_passe: str, qcm_reponses: list[str]) -> dict:
+def login(session: requests.Session, identifiant: str, mot_de_passe: str, qcm_reponses: list[str]) -> dict:
     """
-    Connecte l'utilisateur sur École Directe via Playwright.
+    Connecte l'utilisateur via l'API École Directe.
     Résout automatiquement le QCM grâce à qcm_reponses.
     Retourne les infos du compte (token, eleve_id, prenom, nom, classe).
     """
-    intercepted = {}
+    url = f"{BASE_URL}/login.awp?v={API_VERSION}"
+    payload = "data=" + json.dumps({
+        "identifiant": identifiant,
+        "motdepasse":  mot_de_passe,
+        "isRelogin":   False,
+    })
 
-    def capturer(response):
-        if "api.ecoledirecte.com" not in response.url:
-            return
-        try:
-            body = response.json()
-        except Exception:
-            return
-        code = body.get("code")
-        if "login.awp" in response.url and code in (200, 250):
-            intercepted.update(body)
-        elif "doubleauth.awp" in response.url and "verbe=post" in response.url and code == 200:
-            if body.get("data", {}).get("token"):
-                intercepted["code"]  = 200
-                intercepted["token"] = body["data"]["token"]
-                intercepted["data"]  = body.get("data", {})
-
-    page.on("response", capturer)
-
-    page.goto("https://www.ecoledirecte.com/login", wait_until="load", timeout=60000)
-    page.wait_for_selector("input#username", timeout=15000)
-    page.wait_for_timeout(1000)
-
-    page.fill("input#username", identifiant)
-    page.fill("input#password", mot_de_passe)
-    page.click('button[type="submit"]')
-    page.wait_for_timeout(4000)
-
-    code = intercepted.get("code")
-    if not code:
-        raise Exception("Aucune réponse de l'API après soumission du formulaire.")
+    data  = _api_post(session, url, payload)
+    code  = data.get("code")
+    token = data.get("token") or data.get("data", {}).get("token", "")
 
     if code == 250:
+        # QCM anti-bot : on choisit la bonne proposition
         for tentative in range(6):
-            try:
-                page.wait_for_selector("text=CONFIRMEZ VOTRE IDENTITÉ", timeout=10000)
-            except Exception:
-                pass
-            page.wait_for_timeout(800)
-
-            if "/login" not in page.url:
-                break
-
-            cliqué = False
-            modal = page.locator(".modal, [class*='modal'], [role='dialog']").first
-            labels_loc = modal.locator("label") if modal.count() > 0 else page.locator("label")
-
-            for label in labels_loc.all():
-                try:
-                    texte = label.inner_text().strip()
-                except Exception:
-                    continue
+            propositions = data.get("data", {}).get("propositions", [])
+            choix = None
+            for prop in propositions:
+                libelle = prop.get("libelle", "")
                 for rep in qcm_reponses:
-                    if rep.lower() in texte.lower():
-                        label.scroll_into_view_if_needed()
-                        page.wait_for_timeout(200)
-                        label.click()
-                        cliqué = True
+                    if rep.lower() in libelle.lower():
+                        choix = prop.get("id") or prop.get("idProposition")
                         break
-                if cliqué:
+                if choix:
                     break
 
-            if not cliqué:
-                visible = [l.inner_text().strip() for l in page.locator("label").all() if l.inner_text().strip()]
-                raise Exception(f"Aucune option QCM reconnue (tentative {tentative + 1}). Labels visibles : {visible[:15]}")
+            if not choix:
+                labels = [p.get("libelle", "") for p in propositions]
+                raise Exception(
+                    f"Aucune option QCM reconnue (tentative {tentative + 1}). "
+                    f"Propositions : {labels[:15]}"
+                )
 
-            page.locator('button:has-text("Envoyer ma réponse")').first.click()
+            auth_url     = f"{BASE_URL}/doubleauth.awp?verbe=post&v={API_VERSION}"
+            auth_payload = "data=" + json.dumps({"choix": str(choix)})
+            data  = _api_post(session, auth_url, auth_payload, token=token)
+            code  = data.get("code")
+            token = data.get("token") or data.get("data", {}).get("token") or token
 
-            for _ in range(12):
-                page.wait_for_timeout(1000)
-                if "/login" not in page.url:
-                    break
-                if page.locator("text=CONFIRMEZ VOTRE IDENTITÉ").count() == 0:
-                    page.wait_for_timeout(2000)
-                    break
+            if code == 200:
+                break
+            elif code == 250:
+                continue
+            else:
+                raise Exception(f"Échec QCM : {data.get('message', 'Erreur inconnue')}")
 
-        if "/login" not in page.url:
-            for _ in range(8):
-                if intercepted.get("code") == 200 and intercepted.get("data", {}).get("accounts"):
-                    break
-                page.wait_for_timeout(1000)
-            if "/login" not in page.url:
-                intercepted["code"] = 200
+    if code != 200:
+        raise Exception(f"Connexion échouée : {data.get('message', 'Erreur inconnue')}")
 
-    if intercepted.get("code") != 200:
-        raise Exception(f"Connexion échouée : {intercepted.get('message', 'Erreur inconnue')}")
-
-    data     = intercepted.get("data") or {}
-    token    = intercepted.get("token") or data.get("token")
-    accounts = data.get("accounts") or []
+    raw_data = data.get("data") or {}
+    accounts = raw_data.get("accounts") or []
     account  = next((a for a in accounts if a.get("typeCompte") == "E"), None)
     if not account and accounts:
         account = accounts[0]
@@ -227,8 +179,8 @@ def login(page, identifiant: str, mot_de_passe: str, qcm_reponses: list[str]) ->
 # CAHIER DE TEXTE
 # ─────────────────────────────────────────────
 
-def get_cahier_de_texte(page, infos: dict) -> list[dict]:
-    """Récupère les cours des 3 dernières semaines. Retourne une liste de cours."""
+def get_cahier_de_texte(session: requests.Session, infos: dict) -> list[dict]:
+    """Récupère les cours des 3 dernières semaines via l'API HTTP."""
     token    = infos["token"]
     eleve_id = infos["eleve_id"]
     today    = datetime.today()
@@ -239,7 +191,7 @@ def get_cahier_de_texte(page, infos: dict) -> list[dict]:
         date_str = (lundi + timedelta(days=i)).strftime("%Y-%m-%d")
         url = f"{BASE_URL}/Eleves/{eleve_id}/cahierdetexte/{date_str}.awp?verbe=get&v={API_VERSION}"
         try:
-            data = _api_post(page, url, "data={}", token=token)
+            data = _api_post(session, url, "data={}", token=token)
         except Exception:
             continue
 
@@ -272,7 +224,6 @@ def get_cahier_de_texte(page, infos: dict) -> list[dict]:
 # ─────────────────────────────────────────────
 
 def generer_fiche(cours: dict, infos: dict, anthropic_api_key: str) -> str:
-    """Génère une fiche de révision via Claude. Retourne le texte de la fiche."""
     contenu = cours["contenu"] or "Contenu non disponible"
     if cours["devoir"]:
         contenu += f"\n\nDevoirs associés :\n{cours['devoir']}"
@@ -330,33 +281,11 @@ def run_agent(
     anthropic_api_key: str,
     indices_cours: list[int] | None = None,
 ) -> dict:
-    """
-    Point d'entrée principal pour FastAPI (et les tests).
-
-    Paramètres :
-        identifiant / mot_de_passe : credentials École Directe
-        jour / mois / annee        : date de naissance pour le QCM
-        classe / prof              : infos supplémentaires pour le QCM
-        anthropic_api_key          : clé API Claude
-        indices_cours              : liste d'indices à ficher ; None = tous les cours avec contenu
-
-    Retourne :
-        {
-          "infos":      { prenom, nom, classe, ... },
-          "cours_list": [ { date, matiere, prof, contenu, devoir, ... }, ... ],
-          "fiches":     [ { cours: {...}, texte: "..." }, ... ],
-        }
-    """
     qcm_reponses = build_qcm_reponses(jour, mois, annee, classe, prof)
+    session      = _make_session()
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page    = browser.new_page()
-
-        infos      = login(page, identifiant, mot_de_passe, qcm_reponses)
-        cours_list = get_cahier_de_texte(page, infos)
-
-        browser.close()
+    infos      = login(session, identifiant, mot_de_passe, qcm_reponses)
+    cours_list = get_cahier_de_texte(session, infos)
 
     if indices_cours is None:
         selection = [c for c in cours_list if c["contenu"] or c["devoir"]]
@@ -381,36 +310,33 @@ def main():
     parser = argparse.ArgumentParser(description="FicheIA — Agent École Directe")
     parser.add_argument("--identifiant", required=True)
     parser.add_argument("--mdp",         required=True)
-    parser.add_argument("--jour",        required=True, help="Jour de naissance (ex: 19)")
-    parser.add_argument("--mois",        required=True, help="Mois de naissance en français (ex: janvier)")
-    parser.add_argument("--annee",       required=True, help="Année de naissance (ex: 2011)")
-    parser.add_argument("--classe",      required=True, help="Libellé de classe (ex: 3eme3)")
-    parser.add_argument("--prof",        required=True, help="Nom du professeur principal (ex: olivero)")
+    parser.add_argument("--jour",        required=True)
+    parser.add_argument("--mois",        required=True)
+    parser.add_argument("--annee",       required=True)
+    parser.add_argument("--classe",      required=True)
+    parser.add_argument("--prof",        required=True)
     parser.add_argument("--api-key",     required=True, dest="api_key")
-    parser.add_argument("--cours",       nargs="*", type=int, default=None,
-                        help="Indices des cours à ficher (ex: 0 1 3). Omis = tous.")
+    parser.add_argument("--cours",       nargs="*", type=int, default=None)
     args = parser.parse_args()
 
-    print("🎓 FicheIA — Agent École Directe\n")
-
     result = run_agent(
-        identifiant      = args.identifiant,
-        mot_de_passe     = args.mdp,
-        jour             = args.jour,
-        mois             = args.mois,
-        annee            = args.annee,
-        classe           = args.classe,
-        prof             = args.prof,
-        anthropic_api_key= args.api_key,
-        indices_cours    = args.cours,
+        identifiant       = args.identifiant,
+        mot_de_passe      = args.mdp,
+        jour              = args.jour,
+        mois              = args.mois,
+        annee             = args.annee,
+        classe            = args.classe,
+        prof              = args.prof,
+        anthropic_api_key = args.api_key,
+        indices_cours     = args.cours,
     )
 
     infos      = result["infos"]
     cours_list = result["cours_list"]
     fiches     = result["fiches"]
 
-    print(f"✅ Connecté : {infos['prenom']} {infos['nom']} — {infos['classe']}")
-    print(f"📚 {len(cours_list)} cours récupérés, {len(fiches)} fiche(s) générée(s)\n")
+    print(f"Connecté : {infos['prenom']} {infos['nom']} — {infos['classe']}")
+    print(f"{len(cours_list)} cours récupérés, {len(fiches)} fiche(s) générée(s)\n")
 
     for entry in fiches:
         c   = entry["cours"]
@@ -421,7 +347,7 @@ def main():
             f.write(f"Élève : {infos['prenom']} {infos['nom']} — {infos['classe']}\n")
             f.write("═" * 50 + "\n\n")
             f.write(entry["texte"])
-        print(f"✅ {nom}")
+        print(f"{nom}")
         print(entry["texte"][:300] + "...\n")
 
 

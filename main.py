@@ -13,13 +13,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv, find_dotenv
-from playwright.sync_api import sync_playwright
-
 from ecoledirecte_agent import (
     build_qcm_reponses,
     login,
     get_cahier_de_texte,
     generer_fiche,
+    _make_session,
 )
 from database import init_db, get_fiches_count, increment_fiches_count
 
@@ -91,12 +90,9 @@ def api_cours(req: ConnexionRequest):
     )
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page    = browser.new_page()
-            infos      = login(page, req.identifiant, req.mot_de_passe, qcm_reponses)
-            cours_list = get_cahier_de_texte(page, infos)
-            browser.close()
+        session    = _make_session()
+        infos      = login(session, req.identifiant, req.mot_de_passe, qcm_reponses)
+        cours_list = get_cahier_de_texte(session, infos)
     except Exception as e:
         raise HTTPException(400, str(e))
 
