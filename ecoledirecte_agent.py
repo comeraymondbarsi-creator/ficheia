@@ -8,6 +8,7 @@ import re as _re
 import base64
 import argparse
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 import requests
 import anthropic
@@ -90,10 +91,11 @@ def _make_session() -> requests.Session:
     return s
 
 
-def _api_post(session: requests.Session, url: str, payload: str, token: str = "") -> dict:
+def _api_post(session: requests.Session, url: str, body: dict | None, token: str = "") -> dict:
     headers = {}
     if token:
         headers["X-Token"] = token
+    payload = urlencode({"data": json.dumps(body or {})})
     resp = session.post(url, data=payload, headers=headers, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -110,13 +112,11 @@ def login(session: requests.Session, identifiant: str, mot_de_passe: str, qcm_re
     Retourne les infos du compte (token, eleve_id, prenom, nom, classe).
     """
     url = f"{BASE_URL}/login.awp?v={API_VERSION}"
-    payload = "data=" + json.dumps({
+    data  = _api_post(session, url, {
         "identifiant": identifiant,
         "motdepasse":  mot_de_passe,
         "isRelogin":   False,
     })
-
-    data  = _api_post(session, url, payload)
     code  = data.get("code")
     token = data.get("token") or data.get("data", {}).get("token", "")
 
@@ -141,9 +141,8 @@ def login(session: requests.Session, identifiant: str, mot_de_passe: str, qcm_re
                     f"Propositions : {labels[:15]}"
                 )
 
-            auth_url     = f"{BASE_URL}/doubleauth.awp?verbe=post&v={API_VERSION}"
-            auth_payload = "data=" + json.dumps({"choix": str(choix)})
-            data  = _api_post(session, auth_url, auth_payload, token=token)
+            auth_url = f"{BASE_URL}/doubleauth.awp?verbe=post&v={API_VERSION}"
+            data  = _api_post(session, auth_url, {"choix": str(choix)}, token=token)
             code  = data.get("code")
             token = data.get("token") or data.get("data", {}).get("token") or token
 
@@ -191,7 +190,7 @@ def get_cahier_de_texte(session: requests.Session, infos: dict) -> list[dict]:
         date_str = (lundi + timedelta(days=i)).strftime("%Y-%m-%d")
         url = f"{BASE_URL}/Eleves/{eleve_id}/cahierdetexte/{date_str}.awp?verbe=get&v={API_VERSION}"
         try:
-            data = _api_post(session, url, "data={}", token=token)
+            data = _api_post(session, url, None, token=token)
         except Exception:
             continue
 
