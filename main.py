@@ -1,7 +1,7 @@
 """
 FicheIA — Serveur FastAPI
-Dev  : uvicorn app:app --reload
-Prod : uvicorn app:app --host 0.0.0.0 --port $PORT  (géré par le Procfile)
+Dev  : uvicorn main:app --reload
+Prod : uvicorn main:app --host 0.0.0.0 --port $PORT
 """
 
 import os
@@ -256,4 +256,4 @@ def api_fiches(req: FichesRequest):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
